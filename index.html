@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VitaLog - Health Tracker</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- React & Dependencies -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Prop-Types (Required by Recharts) -->
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <!-- Recharts (UMD) -->
+    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        .recharts-cartesian-grid-horizontal line {
+            stroke: #f1f5f9;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        
+        /* Simple animations since Framer Motion UMD can be unstable */
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Icons Helper -->
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const { 
+            LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
+        } = window.Recharts;
+
+        const Icon = ({ name, size = 24, className = "" }) => {
+            const [svgContent, setSvgContent] = useState("");
+            
+            useEffect(() => {
+                if (window.lucide && window.lucide.icons[name]) {
+                    const iconData = window.lucide.icons[name];
+                    // Lucide icons in UMD are arrays of [tagName, attributes]
+                    const content = iconData.map(([tag, attrs]) => {
+                        const attrStr = Object.entries(attrs)
+                            .map(([k, v]) => `${k}="${v}"`)
+                            .join(" ");
+                        return `<${tag} ${attrStr}></${tag}>`;
+                    }).join("");
+                    setSvgContent(content);
+                }
+            }, [name]);
+
+            if (!svgContent) return <span style={{ width: size, height: size, display: 'inline-block' }} />;
+
+            return (
+                <svg
+                    width={size}
+                    height={size}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={className}
+                    dangerouslySetInnerHTML={{ __html: svgContent }}
+                />
+            );
+        };
+    </script>
+
+    <script type="text/babel">
+        const STORAGE_KEY = 'vitalog_standalone_data';
+
+        const App = () => {
+            const [data, setData] = useState({
+                medications: [],
+                intakeLogs: [],
+                metrics: []
+            });
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [isAddingMed, setIsAddingMed] = useState(false);
+            const [isAddingMetric, setIsAddingMetric] = useState(null);
+
+            // Persistence
+            useEffect(() => {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) setData(JSON.parse(saved));
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            }, [data]);
+
+            // Actions
+            const addMedication = (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const newMed = {
+                    id: crypto.randomUUID(),
+                    name: formData.get('name'),
+                    dosage: formData.get('dosage'),
+                    frequency: formData.get('frequency')
+                };
+                setData(prev => ({ ...prev, medications: [...prev.medications, newMed] }));
+                setIsAddingMed(false);
+            };
+
+            const deleteMedication = (id) => {
+                setData(prev => ({
+                    ...prev,
+                    medications: prev.medications.filter(m => m.id !== id),
+                    intakeLogs: prev.intakeLogs.filter(l => l.medicationId !== id)
+                }));
+            };
+
+            const logIntake = (medicationId) => {
+                const newLog = { id: crypto.randomUUID(), medicationId, timestamp: Date.now() };
+                setData(prev => ({ ...prev, intakeLogs: [...prev.intakeLogs, newLog] }));
+            };
+
+            const logMetric = (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const newMetric = {
+                    id: crypto.randomUUID(),
+                    type: isAddingMetric,
+                    value: formData.get('value'),
+                    unit: isAddingMetric === 'blood_pressure' ? 'mmHg' : 'mg/dL',
+                    timestamp: Date.now()
+                };
+                setData(prev => ({ ...prev, metrics: [...prev.metrics, newMetric] }));
+                setIsAddingMetric(null);
+            };
+
+            const getTodayLogs = () => {
+                const startOfDay = new Date().setHours(0, 0, 0, 0);
+                return data.intakeLogs.filter(l => l.timestamp >= startOfDay);
+            };
+
+            const isTakenToday = (medId) => {
+                return getTodayLogs().some(l => l.medicationId === medId);
+            };
+
+            return (
+                <div className="min-h-screen pb-24 max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden relative border-x border-slate-200">
+                    {/* Header */}
+                    <header className="p-6 pt-8 bg-white border-b border-slate-100">
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <h1 className="text-2xl font-bold tracking-tight text-slate-900">VitaLog</h1>
+                                <p className="text-sm text-slate-500">
+                                    {new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}
+                                </p>
+                            </div>
+                            <div className="h-10 w-10 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600">
+                                <Icon name="Activity" size={24} />
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="p-6">
+                        {activeTab === 'dashboard' && (
+                            <div className="space-y-8 fade-in">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={() => setIsAddingMetric('blood_pressure')} className="flex flex-col items-center p-4 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-all">
+                                        <div className="h-12 w-12 bg-rose-50 rounded-xl flex items-center justify-center text-rose-500 mb-2"><Icon name="Activity" /></div>
+                                        <span className="text-sm font-semibold text-slate-700">Pressione</span>
+                                    </button>
+                                    <button onClick={() => setIsAddingMetric('glucose')} className="flex flex-col items-center p-4 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-all">
+                                        <div className="h-12 w-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500 mb-2"><Icon name="Droplets" /></div>
+                                        <span className="text-sm font-semibold text-slate-700">Glicemia</span>
+                                    </button>
+                                </div>
+
+                                <section>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="text-lg font-bold text-slate-800">Pillole di oggi</h2>
+                                        <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded-full">
+                                            {getTodayLogs().length} / {data.medications.length} prese
+                                        </span>
+                                    </div>
+                                    {data.medications.length === 0 ? (
+                                        <div className="text-center p-8 bg-white border border-dashed border-slate-200 rounded-2xl">
+                                            <div className="text-slate-300 mb-2 flex justify-center"><Icon name="Pill" size={32} /></div>
+                                            <p className="text-sm text-slate-500">Nessuna pillola configurata.</p>
+                                            <button onClick={() => setActiveTab('profile')} className="mt-4 text-emerald-600 font-semibold text-sm">Configura profilo</button>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {data.medications.map(med => (
+                                                <div key={med.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${isTakenToday(med.id) ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100 shadow-sm'}`}>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${isTakenToday(med.id) ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}><Icon name="Pill" size={20} /></div>
+                                                        <div>
+                                                            <h3 className={`font-semibold text-sm ${isTakenToday(med.id) ? 'text-emerald-900' : 'text-slate-800'}`}>{med.name}</h3>
+                                                            <p className="text-xs text-slate-500">{med.dosage} • {med.frequency}</p>
+                                                        </div>
+                                                    </div>
+                                                    <button disabled={isTakenToday(med.id)} onClick={() => logIntake(med.id)} className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${isTakenToday(med.id) ? 'text-emerald-500' : 'bg-emerald-600 text-white shadow-lg active:scale-90'}`}>
+                                                        {isTakenToday(med.id) ? <Icon name="CheckCircle2" /> : <Icon name="Plus" />}
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </section>
+                            </div>
+                        )}
+
+                        {activeTab === 'profile' && (
+                            <div className="space-y-6 fade-in">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xl font-bold text-slate-800">Profilo Farmaci</h2>
+                                    <button onClick={() => setIsAddingMed(true)} className="flex items-center gap-1 text-sm font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full"><Icon name="Plus" size={16} /> Aggiungi</button>
+                                </div>
+                                <div className="space-y-4">
+                                    {data.medications.map(med => (
+                                        <div key={med.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
+                                            <div><h3 className="font-bold text-slate-800">{med.name}</h3><p className="text-sm text-slate-500">{med.dosage} • {med.frequency}</p></div>
+                                            <button onClick={() => deleteMedication(med.id)} className="p-2 text-rose-400 hover:text-rose-600"><Icon name="Trash2" size={18} /></button>
+                                        </div>
+                                    ))}
+                                    {data.medications.length === 0 && <p className="text-center text-slate-400 py-12 italic">Nessun farmaco nel profilo.</p>}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'history' && (
+                            <div className="space-y-6 fade-in">
+                                <h2 className="text-xl font-bold text-slate-800">Cronologia</h2>
+                                
+                                <section className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                    <h3 className="text-xs font-bold uppercase text-slate-400 mb-4 flex items-center gap-2"><Icon name="Activity" size={14} className="text-rose-500" /> Pressione</h3>
+                                    <div className="h-48 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={data.metrics.filter(m => m.type === 'blood_pressure').map(m => {
+                                                const [sys, dia] = m.value.split('/').map(Number);
+                                                return { time: new Date(m.timestamp).toLocaleDateString('it-IT', {day:'numeric', month:'short'}), systolic: sys, diastolic: dia, ts: m.timestamp };
+                                            }).sort((a,b) => a.ts - b.ts)}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="time" fontSize={10} tickLine={false} axisLine={false} />
+                                                <YAxis fontSize={10} tickLine={false} axisLine={false} domain={['dataMin - 10', 'dataMax + 10']} />
+                                                <Tooltip />
+                                                <Line type="monotone" dataKey="systolic" stroke="#f43f5e" strokeWidth={3} dot={{r:4}} name="Sistolica" />
+                                                <Line type="monotone" dataKey="diastolic" stroke="#fb7185" strokeWidth={2} dot={{r:3}} name="Diastolica" />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </section>
+
+                                <section className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                    <h3 className="text-xs font-bold uppercase text-slate-400 mb-4 flex items-center gap-2"><Icon name="Droplets" size={14} className="text-amber-500" /> Glicemia</h3>
+                                    <div className="h-48 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={data.metrics.filter(m => m.type === 'glucose').map(m => ({
+                                                time: new Date(m.timestamp).toLocaleDateString('it-IT', {day:'numeric', month:'short'}), value: Number(m.value), ts: m.timestamp
+                                            })).sort((a,b) => a.ts - b.ts)}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="time" fontSize={10} tickLine={false} axisLine={false} />
+                                                <YAxis fontSize={10} tickLine={false} axisLine={false} domain={['dataMin - 20', 'dataMax + 20']} />
+                                                <Tooltip />
+                                                <Line type="monotone" dataKey="value" stroke="#f59e0b" strokeWidth={3} dot={{r:4}} name="Glicemia" />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </section>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Navigation */}
+                    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-100 p-4 flex justify-around items-center z-10">
+                        <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`}><Icon name="LayoutDashboard" size={20} /><span className="text-[10px] font-bold uppercase">Home</span></button>
+                        <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center gap-1 ${activeTab === 'history' ? 'text-emerald-600' : 'text-slate-400'}`}><Icon name="History" size={20} /><span className="text-[10px] font-bold uppercase">Storia</span></button>
+                        <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center gap-1 ${activeTab === 'profile' ? 'text-emerald-600' : 'text-slate-400'}`}><Icon name="Settings" size={20} /><span className="text-[10px] font-bold uppercase">Profilo</span></button>
+                    </nav>
+
+                    {/* Modals */}
+                    {isAddingMed && (
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end justify-center p-4">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl fade-in">
+                                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">Nuovo Farmaco</h3><button onClick={() => setIsAddingMed(false)} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="X" size={20} /></button></div>
+                                <form onSubmit={addMedication} className="space-y-4">
+                                    <input required name="name" placeholder="Nome Farmaco" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <input required name="dosage" placeholder="Dosaggio (es. 100mg)" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" />
+                                        <select name="frequency" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"><option>Mattina</option><option>Pomeriggio</option><option>Sera</option><option>Notte</option><option>Al bisogno</option></select>
+                                    </div>
+                                    <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg">Salva Farmaco</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                    {isAddingMetric && (
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end justify-center p-4">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl fade-in">
+                                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">{isAddingMetric === 'blood_pressure' ? 'Misura Pressione' : 'Misura Glicemia'}</h3><button onClick={() => setIsAddingMetric(null)} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="X" size={20} /></button></div>
+                                <form onSubmit={logMetric} className="space-y-4">
+                                    <input required name="value" autoFocus placeholder={isAddingMetric === 'blood_pressure' ? 'es. 120/80' : 'es. 95'} className="w-full p-4 text-2xl font-bold text-center bg-slate-50 border border-slate-200 rounded-xl" />
+                                    <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg">Registra Misura</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
