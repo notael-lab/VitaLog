@@ -139,10 +139,16 @@
             const logMetric = (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
+                let value = "";
+                if (isAddingMetric === 'blood_pressure') {
+                    value = `${formData.get('systolic')}/${formData.get('diastolic')}`;
+                } else {
+                    value = formData.get('value');
+                }
                 const newMetric = {
                     id: crypto.randomUUID(),
                     type: isAddingMetric,
-                    value: formData.get('value'),
+                    value: value,
                     unit: isAddingMetric === 'blood_pressure' ? 'mmHg' : 'mg/dL',
                     timestamp: Date.now()
                 };
@@ -296,8 +302,8 @@
 
                     {/* Modals */}
                     {isAddingMed && (
-                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end justify-center p-4">
-                            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl fade-in">
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+                            <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl fade-in my-auto">
                                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">Nuovo Farmaco</h3><button onClick={() => setIsAddingMed(false)} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="X" size={20} /></button></div>
                                 <form onSubmit={addMedication} className="space-y-4">
                                     <input required name="name" placeholder="Nome Farmaco" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" />
@@ -311,11 +317,27 @@
                         </div>
                     )}
                     {isAddingMetric && (
-                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end justify-center p-4">
-                            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl fade-in">
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+                            <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl fade-in my-auto">
                                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">{isAddingMetric === 'blood_pressure' ? 'Misura Pressione' : 'Misura Glicemia'}</h3><button onClick={() => setIsAddingMetric(null)} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="X" size={20} /></button></div>
                                 <form onSubmit={logMetric} className="space-y-4">
-                                    <input required name="value" autoFocus placeholder={isAddingMetric === 'blood_pressure' ? 'es. 120/80' : 'es. 95'} className="w-full p-4 text-2xl font-bold text-center bg-slate-50 border border-slate-200 rounded-xl" />
+                                    {isAddingMetric === 'blood_pressure' ? (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 text-center">Sistolica (Max)</label>
+                                                <input required name="systolic" type="number" autoFocus placeholder="120" className="w-full p-4 text-2xl font-bold text-center bg-slate-50 border border-slate-200 rounded-xl" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 text-center">Diastolica (Min)</label>
+                                                <input required name="diastolic" type="number" placeholder="80" className="w-full p-4 text-2xl font-bold text-center bg-slate-50 border border-slate-200 rounded-xl" />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1 text-center">Valore (mg/dL)</label>
+                                            <input required name="value" type="number" autoFocus placeholder="95" className="w-full p-4 text-2xl font-bold text-center bg-slate-50 border border-slate-200 rounded-xl" />
+                                        </div>
+                                    )}
                                     <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg">Registra Misura</button>
                                 </form>
                             </div>
